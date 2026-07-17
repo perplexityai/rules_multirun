@@ -134,7 +134,8 @@ for expectation in "${expectations[@]}"; do
 done
 
 script=$(rlocation rules_multirun/tests/ibazel_multirun.bash)
-ibazel_output=$($script <<< "IBAZEL_BUILD_COMPLETED SUCCESS")
+ibazel_event='IBAZEL_EVENT {"version":1,"type":"build_completed","success":true,"changes":[]}'
+ibazel_output=$($script <<< $'IBAZEL_BUILD_COMPLETED SUCCESS\n'"$ibazel_event")
 if [[ "$ibazel_output" != *"capable: IBAZEL_BUILD_COMPLETED SUCCESS"* ]]; then
   echo "Expected capable child to receive iBazel notification, got '$ibazel_output'"
   exit 1
@@ -145,6 +146,18 @@ if [[ "$ibazel_output" != *"wrapped: IBAZEL_BUILD_COMPLETED SUCCESS"* ]]; then
 fi
 if [[ "$ibazel_output" == *"plain: IBAZEL_BUILD_COMPLETED SUCCESS"* ]]; then
   echo "Expected plain child not to receive iBazel notification, got '$ibazel_output'"
+  exit 1
+fi
+if [[ "$ibazel_output" == *"capable: $ibazel_event"* ]]; then
+  echo "Expected legacy child not to receive structured iBazel notification, got '$ibazel_output'"
+  exit 1
+fi
+if [[ "$ibazel_output" != *"wrapped: $ibazel_event"* ]]; then
+  echo "Expected v1 child to receive structured iBazel notification, got '$ibazel_output'"
+  exit 1
+fi
+if [[ "$ibazel_output" == *"plain: $ibazel_event"* ]]; then
+  echo "Expected plain child not to receive structured iBazel notification, got '$ibazel_output'"
   exit 1
 fi
 

@@ -26,7 +26,7 @@ CommandInfo = provider(
 )
 
 IBazelInfo = provider(
-    fields = ["notify_changes"],
+    fields = ["notify_changes", "notify_changes_v1"],
     doc = "iBazel capabilities exposed by a command wrapper.",
 )
 

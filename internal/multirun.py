@@ -19,6 +19,7 @@ class Command(NamedTuple):
     args: List[str]
     env: Dict[str, str]
     ibazel_notify_changes: bool
+    ibazel_notify_changes_v1: bool
 
 
 def _run_command(command: Command, block: bool, **kwargs) -> Union[int, subprocess.Popen]:
@@ -37,11 +38,13 @@ def _run_command(command: Command, block: bool, **kwargs) -> Union[int, subproce
     else:
         return subprocess.Popen(args, env=env, universal_newlines=True, bufsize=1, **kwargs)
 
-def _forward_stdin(procs: List[Tuple[Command, subprocess.Popen]]) -> None:
+def _forward_stdin(procs: List[Tuple[Command, subprocess.Popen]], filter_structured_events: bool = False) -> None:
     for line in sys.stdin:
         if not line:
             break
-        for (_, proc) in procs:
+        for (command, proc) in procs:
+            if filter_structured_events and line.startswith("IBAZEL_EVENT ") and not command.ibazel_notify_changes_v1:
+                continue
             try:
                 proc.stdin.write(line)
                 proc.stdin.flush()
@@ -90,7 +93,7 @@ def _perform_concurrently(commands: List[Command], print_command: bool, buffer_o
             for command, process in processes
             if command.ibazel_notify_changes
         ]
-        ibazel_thread = threading.Thread(target=_forward_stdin, args=(ibazel_processes,))
+        ibazel_thread = threading.Thread(target=_forward_stdin, args=(ibazel_processes, True))
         ibazel_thread.start()
         threads.append(ibazel_thread)
 
@@ -158,7 +161,8 @@ def _main(instructions_path: str, extra_args: List[str]) -> None:
     commands = [
         Command(_script_path(workspace_name, blob["path"]), blob["tag"],
                 blob["args"] + extra_args, blob["env"],
-                blob.get("ibazel_notify_changes", False))
+                blob.get("ibazel_notify_changes", False) or blob.get("ibazel_notify_changes_v1", False),
+                blob.get("ibazel_notify_changes_v1", False))
         for blob in instructions["commands"]
     ]
     parallel = instructions["jobs"] == 0

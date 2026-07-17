@@ -104,8 +104,11 @@ def _command_impl(ctx):
             ),
         )
 
-    if ctx.attr.ibazel_notify_changes:
-        providers.append(IBazelInfo(notify_changes = True))
+    if ctx.attr.ibazel_notify_changes or ctx.attr.ibazel_notify_changes_v1:
+        providers.append(IBazelInfo(
+            notify_changes = True,
+            notify_changes_v1 = ctx.attr.ibazel_notify_changes_v1,
+        ))
 
     return providers
 
@@ -134,7 +137,11 @@ def command_with_transition(cfg, allowlist = None, doc = None):
         ),
         "ibazel_notify_changes": attr.bool(
             default = False,
-            doc = "Forward iBazel incremental build notifications to this command when it is used by `ibazel_multirun`.",
+            doc = "Forward legacy iBazel incremental build notifications to this command when its `multirun` enables notification forwarding.",
+        ),
+        "ibazel_notify_changes_v1": attr.bool(
+            default = False,
+            doc = "Also forward structured `IBAZEL_EVENT` notifications to this command. This implies `ibazel_notify_changes`.",
         ),
         "command": attr.label(
             mandatory = True,

@@ -2,7 +2,7 @@ load("@rules_python//python:py_binary.bzl", "py_binary")
 load("@rules_python//python:py_test.bzl", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//:defs.bzl", "command", "command_force_opt", "ibazel_multirun", "multirun")
+load("//:defs.bzl", "command", "command_force_opt", "multirun")
 load(":custom_executable.bzl", "custom_executable")
 load(":transitions.bzl", "command_lambda", "multirun_lambda")
 
@@ -97,16 +97,17 @@ command(
     name = "ibazel_capable_command",
     arguments = ["wrapped"],
     command = ":ibazel_wrapped_child",
-    ibazel_notify_changes = True,
+    ibazel_notify_changes_v1 = True,
 )
 
-ibazel_multirun(
+multirun(
     name = "ibazel_multirun",
     commands = [
         ":ibazel_capable_child",
         ":ibazel_capable_command",
         ":ibazel_plain_child",
     ],
+    ibazel_notify_changes = True,
 )
 
 py_test(
