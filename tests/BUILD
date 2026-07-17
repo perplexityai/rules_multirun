@@ -1,7 +1,8 @@
 load("@rules_python//python:py_binary.bzl", "py_binary")
+load("@rules_python//python:py_test.bzl", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//:defs.bzl", "command", "command_force_opt", "multirun")
+load("//:defs.bzl", "command", "command_force_opt", "ibazel_multirun", "multirun")
 load(":custom_executable.bzl", "custom_executable")
 load(":transitions.bzl", "command_lambda", "multirun_lambda")
 
@@ -68,6 +69,51 @@ multirun(
     ],
     forward_stdin = True,
     jobs = 0,
+)
+
+py_binary(
+    name = "ibazel_capable_child",
+    srcs = ["ibazel_child.py"],
+    args = ["capable"],
+    main = "ibazel_child.py",
+    tags = ["ibazel_notify_changes"],
+)
+
+py_binary(
+    name = "ibazel_plain_child",
+    srcs = ["ibazel_child.py"],
+    args = ["plain"],
+    main = "ibazel_child.py",
+)
+
+py_binary(
+    name = "ibazel_wrapped_child",
+    srcs = ["ibazel_child.py"],
+    args = ["wrapped"],
+    main = "ibazel_child.py",
+)
+
+command(
+    name = "ibazel_capable_command",
+    arguments = ["wrapped"],
+    command = ":ibazel_wrapped_child",
+    ibazel_notify_changes = True,
+)
+
+ibazel_multirun(
+    name = "ibazel_multirun",
+    commands = [
+        ":ibazel_capable_child",
+        ":ibazel_capable_command",
+        ":ibazel_plain_child",
+    ],
+)
+
+py_test(
+    name = "ibazel_streaming_test",
+    srcs = ["ibazel_streaming_test.py"],
+    args = ["$(rootpath :ibazel_multirun)"],
+    data = [":ibazel_multirun"],
 )
 
 sh_binary(
@@ -291,6 +337,7 @@ sh_test(
         ":echo_and_fail_cmd",
         ":hello",
         ":hello2",
+        ":ibazel_multirun",
         ":multirun_binary_args",
         ":multirun_binary_args_location",
         ":multirun_binary_env",

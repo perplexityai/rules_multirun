@@ -133,6 +133,21 @@ for expectation in "${expectations[@]}"; do
   fi
 done
 
+script=$(rlocation rules_multirun/tests/ibazel_multirun.bash)
+ibazel_output=$($script <<< "IBAZEL_BUILD_COMPLETED SUCCESS")
+if [[ "$ibazel_output" != *"capable: IBAZEL_BUILD_COMPLETED SUCCESS"* ]]; then
+  echo "Expected capable child to receive iBazel notification, got '$ibazel_output'"
+  exit 1
+fi
+if [[ "$ibazel_output" != *"wrapped: IBAZEL_BUILD_COMPLETED SUCCESS"* ]]; then
+  echo "Expected wrapped capable child to receive iBazel notification, got '$ibazel_output'"
+  exit 1
+fi
+if [[ "$ibazel_output" == *"plain: IBAZEL_BUILD_COMPLETED SUCCESS"* ]]; then
+  echo "Expected plain child not to receive iBazel notification, got '$ibazel_output'"
+  exit 1
+fi
+
 # Fake the 'bazel run' env var for tests
 export BUILD_WORKSPACE_DIRECTORY=/tmp
 script=$(rlocation rules_multirun/tests/default_pwd_cmd.bash)

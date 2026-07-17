@@ -11,7 +11,8 @@ useful for running multiple linters or formatters with a single command.
 <pre>
 load("@rules_multirun//:defs.bzl", "command")
 
-command(<a href="#command-name">name</a>, <a href="#command-data">data</a>, <a href="#command-arguments">arguments</a>, <a href="#command-command">command</a>, <a href="#command-description">description</a>, <a href="#command-environment">environment</a>, <a href="#command-run_from_workspace_root">run_from_workspace_root</a>)
+command(<a href="#command-name">name</a>, <a href="#command-data">data</a>, <a href="#command-arguments">arguments</a>, <a href="#command-command">command</a>, <a href="#command-description">description</a>, <a href="#command-environment">environment</a>, <a href="#command-ibazel_notify_changes">ibazel_notify_changes</a>,
+        <a href="#command-run_from_workspace_root">run_from_workspace_root</a>)
 </pre>
 
 A command is a wrapper rule for some other target that can be run like a
@@ -58,6 +59,7 @@ command(
 | <a id="command-command"></a>command |  Target to run   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 | <a id="command-description"></a>description |  A string describing the command printed during multiruns   | String | optional |  `""`  |
 | <a id="command-environment"></a>environment |  Dictionary of environment variables. Subject to [`$(location)` expansion](https://docs.bazel.build/versions/master/skylark/lib/ctx.html#expand_location)   | <a href="https://bazel.build/rules/lib/dict">Dictionary: String -> String</a> | optional |  `{}`  |
+| <a id="command-ibazel_notify_changes"></a>ibazel_notify_changes |  Forward iBazel incremental build notifications to this command when it is used by `ibazel_multirun`.   | Boolean | optional |  `False`  |
 | <a id="command-run_from_workspace_root"></a>run_from_workspace_root |  If true, the command will be run from the workspace root instead of the execution root   | Boolean | optional |  `False`  |
 
 
@@ -68,7 +70,8 @@ command(
 <pre>
 load("@rules_multirun//:defs.bzl", "command_force_opt")
 
-command_force_opt(<a href="#command_force_opt-name">name</a>, <a href="#command_force_opt-data">data</a>, <a href="#command_force_opt-arguments">arguments</a>, <a href="#command_force_opt-command">command</a>, <a href="#command_force_opt-description">description</a>, <a href="#command_force_opt-environment">environment</a>, <a href="#command_force_opt-run_from_workspace_root">run_from_workspace_root</a>)
+command_force_opt(<a href="#command_force_opt-name">name</a>, <a href="#command_force_opt-data">data</a>, <a href="#command_force_opt-arguments">arguments</a>, <a href="#command_force_opt-command">command</a>, <a href="#command_force_opt-description">description</a>, <a href="#command_force_opt-environment">environment</a>, <a href="#command_force_opt-ibazel_notify_changes">ibazel_notify_changes</a>,
+                  <a href="#command_force_opt-run_from_workspace_root">run_from_workspace_root</a>)
 </pre>
 
 A command that forces the compilation mode of the dependent targets to opt. This can be useful if your tools have improved performance if built with optimizations. See the documentation for command for more examples. If you'd like to always use this variation you can import this directly and rename it for convenience like:
@@ -88,6 +91,7 @@ load("@rules_multirun//:defs.bzl", "multirun", command = "command_force_opt")
 | <a id="command_force_opt-command"></a>command |  Target to run   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 | <a id="command_force_opt-description"></a>description |  A string describing the command printed during multiruns   | String | optional |  `""`  |
 | <a id="command_force_opt-environment"></a>environment |  Dictionary of environment variables. Subject to [`$(location)` expansion](https://docs.bazel.build/versions/master/skylark/lib/ctx.html#expand_location)   | <a href="https://bazel.build/rules/lib/dict">Dictionary: String -> String</a> | optional |  `{}`  |
+| <a id="command_force_opt-ibazel_notify_changes"></a>ibazel_notify_changes |  Forward iBazel incremental build notifications to this command when it is used by `ibazel_multirun`.   | Boolean | optional |  `False`  |
 | <a id="command_force_opt-run_from_workspace_root"></a>run_from_workspace_root |  If true, the command will be run from the workspace root instead of the execution root   | Boolean | optional |  `False`  |
 
 
@@ -98,7 +102,8 @@ load("@rules_multirun//:defs.bzl", "multirun", command = "command_force_opt")
 <pre>
 load("@rules_multirun//:defs.bzl", "multirun")
 
-multirun(<a href="#multirun-name">name</a>, <a href="#multirun-data">data</a>, <a href="#multirun-buffer_output">buffer_output</a>, <a href="#multirun-commands">commands</a>, <a href="#multirun-forward_stdin">forward_stdin</a>, <a href="#multirun-jobs">jobs</a>, <a href="#multirun-keep_going">keep_going</a>, <a href="#multirun-print_command">print_command</a>)
+multirun(<a href="#multirun-name">name</a>, <a href="#multirun-data">data</a>, <a href="#multirun-buffer_output">buffer_output</a>, <a href="#multirun-commands">commands</a>, <a href="#multirun-forward_stdin">forward_stdin</a>, <a href="#multirun-ibazel_notify_changes">ibazel_notify_changes</a>, <a href="#multirun-jobs">jobs</a>,
+         <a href="#multirun-keep_going">keep_going</a>, <a href="#multirun-print_command">print_command</a>)
 </pre>
 
 A multirun composes multiple command rules in order to run them in a single
@@ -159,6 +164,7 @@ multiple tools.
 | <a id="multirun-buffer_output"></a>buffer_output |  Buffer the output of the commands and print it after each command has finished. Only for parallel execution.   | Boolean | optional |  `False`  |
 | <a id="multirun-commands"></a>commands |  Targets to run   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="multirun-forward_stdin"></a>forward_stdin |  Whether or not to forward stdin   | Boolean | optional |  `False`  |
+| <a id="multirun-ibazel_notify_changes"></a>ibazel_notify_changes |  Forward iBazel incremental build notifications only to commands that advertise the `ibazel_notify_changes` capability.   | Boolean | optional |  `False`  |
 | <a id="multirun-jobs"></a>jobs |  The expected concurrency of targets to be executed. Default is set to 1 which means sequential execution. Setting to 0 means that there is no limit concurrency.   | Integer | optional |  `1`  |
 | <a id="multirun-keep_going"></a>keep_going |  Keep going after a command fails. Only for sequential execution.   | Boolean | optional |  `False`  |
 | <a id="multirun-print_command"></a>print_command |  Print what command is being run before running it.   | Boolean | optional |  `True`  |
@@ -188,6 +194,36 @@ to apply to all of your commands. See also multirun_with_transition.
 | <a id="command_with_transition-cfg"></a>cfg |  The transition to force on the dependent targets.   |  none |
 | <a id="command_with_transition-allowlist"></a>allowlist |  The transition allowlist to use for the given cfg. Not necessary in newer bazel versions.   |  `None` |
 | <a id="command_with_transition-doc"></a>doc |  The documentation to use for the rule. Only necessary if you're generating documentation with stardoc for your custom rules.   |  `None` |
+
+
+<a id="ibazel_multirun"></a>
+
+## ibazel_multirun
+
+<pre>
+load("@rules_multirun//:defs.bzl", "ibazel_multirun")
+
+ibazel_multirun(<a href="#ibazel_multirun-name">name</a>, <a href="#ibazel_multirun-commands">commands</a>, <a href="#ibazel_multirun-tags">tags</a>, <a href="#ibazel_multirun-kwargs">**kwargs</a>)
+</pre>
+
+Runs multiple long-lived commands while preserving iBazel notifications.
+
+Commands tagged `ibazel_notify_changes`, such as `js_run_devserver`, receive
+incremental build messages on stdin. Other commands receive no stdin, which
+prevents them from consuming iBazel's control protocol. Non-capable commands
+are not restarted after rebuilds, so they must handle their own source
+watching.
+
+
+**PARAMETERS**
+
+
+| Name  | Description | Default Value |
+| :------------- | :------------- | :------------- |
+| <a id="ibazel_multirun-name"></a>name |  A unique name for this target.   |  none |
+| <a id="ibazel_multirun-commands"></a>commands |  Targets to run in parallel.   |  none |
+| <a id="ibazel_multirun-tags"></a>tags |  Additional tags for the generated target.   |  `[]` |
+| <a id="ibazel_multirun-kwargs"></a>kwargs |  Additional `multirun` attributes except `jobs`, `forward_stdin`, and `ibazel_notify_changes`.   |  none |
 
 
 <a id="multirun_with_transition"></a>
