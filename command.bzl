@@ -7,6 +7,7 @@ load("@bazel_skylib//lib:shell.bzl", "shell")
 load(
     "//internal:constants.bzl",
     "CommandInfo",
+    "IBazelInfo",
     "RUNFILES_PREFIX",
     "rlocation_path",
     "update_attrs",
@@ -103,6 +104,12 @@ def _command_impl(ctx):
             ),
         )
 
+    if ctx.attr.ibazel_notify_changes or ctx.attr.ibazel_notify_changes_v1:
+        providers.append(IBazelInfo(
+            notify_changes = True,
+            notify_changes_v1 = ctx.attr.ibazel_notify_changes_v1,
+        ))
+
     return providers
 
 def command_with_transition(cfg, allowlist = None, doc = None):
@@ -127,6 +134,14 @@ def command_with_transition(cfg, allowlist = None, doc = None):
         ),
         "environment": attr.string_dict(
             doc = "Dictionary of environment variables. Subject to [`$(location)` expansion](https://docs.bazel.build/versions/master/skylark/lib/ctx.html#expand_location)",
+        ),
+        "ibazel_notify_changes": attr.bool(
+            default = False,
+            doc = "Forward legacy iBazel incremental build notifications to this command when its `multirun` enables notification forwarding.",
+        ),
+        "ibazel_notify_changes_v1": attr.bool(
+            default = False,
+            doc = "Also forward structured `IBAZEL_EVENT` notifications to this command. This implies `ibazel_notify_changes`.",
         ),
         "command": attr.label(
             mandatory = True,

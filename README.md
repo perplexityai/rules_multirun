@@ -51,6 +51,35 @@ Run the `multirun` target with bazel:
 $ bazel run //:lint
 ```
 
+## Usage with iBazel
+
+Set `ibazel_notify_changes` on `multirun` to compose long-lived commands while
+preserving the incremental build protocol used by targets such as
+`js_run_devserver`:
+
+```bzl
+load("@rules_multirun//:defs.bzl", "multirun")
+
+multirun(
+    name = "dev",
+    commands = [
+        ":admin_devserver",
+        ":frontend_devserver",
+    ],
+    ibazel_notify_changes = True,
+)
+```
+
+Run it with `ibazel run //:dev`. Commands tagged `ibazel_notify_changes`
+receive build notifications on stdin and remain alive across rebuilds. Other
+commands do not receive the protocol messages and are not restarted. Use only
+commands that handle their own source watching or implement iBazel's
+incremental protocol.
+
+Commands that only advertise `ibazel_notify_changes` receive the legacy
+protocol. Commands that advertise `ibazel_notify_changes_v1` additionally
+receive structured `IBAZEL_EVENT` messages containing changed files.
+
 See [the full API docs](doc) for more info.
 
 ## Usage with platform transitions

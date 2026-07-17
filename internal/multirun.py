@@ -18,6 +18,8 @@ class Command(NamedTuple):
     tag: str
     args: List[str]
     env: Dict[str, str]
+    ibazel_notify_changes: bool
+    ibazel_notify_changes_v1: bool
 
 
 def _run_command(command: Command, block: bool, **kwargs) -> Union[int, subprocess.Popen]:
@@ -36,18 +38,26 @@ def _run_command(command: Command, block: bool, **kwargs) -> Union[int, subproce
     else:
         return subprocess.Popen(args, env=env, universal_newlines=True, bufsize=1, **kwargs)
 
-def _forward_stdin(procs: List[Tuple[Command, subprocess.Popen]]) -> None:
-    for line in sys.stdin.readlines():
+def _forward_stdin(procs: List[Tuple[Command, subprocess.Popen]], filter_structured_events: bool = False) -> None:
+    for line in sys.stdin:
         if not line:
             break
-        for (cmd, proc) in procs:
-            proc.stdin.write(line)
-            proc.stdin.flush()
+        for (command, proc) in procs:
+            if filter_structured_events and line.startswith("IBAZEL_EVENT ") and not command.ibazel_notify_changes_v1:
+                continue
+            try:
+                proc.stdin.write(line)
+                proc.stdin.flush()
+            except BrokenPipeError:
+                pass
 
-    for (cmd, proc) in procs:
-        proc.stdin.close()
+    for (_, proc) in procs:
+        try:
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
 
-def _perform_concurrently(commands: List[Command], print_command: bool, buffer_output: bool, forward_stdin: bool) -> bool:
+def _perform_concurrently(commands: List[Command], print_command: bool, buffer_output: bool, forward_stdin: bool, ibazel_notify_changes: bool) -> bool:
     kwargs = {}
     if buffer_output:
         kwargs = {
@@ -58,17 +68,34 @@ def _perform_concurrently(commands: List[Command], print_command: bool, buffer_o
     if forward_stdin:
         kwargs["stdin"] = subprocess.PIPE
 
-    processes = [
-        (command, _run_command(command, block=False, **kwargs))
-        for command
-        in commands
-    ]
+    processes = []
+    for command in commands:
+        command_kwargs = dict(kwargs)
+        if ibazel_notify_changes:
+            command_kwargs["stdin"] = (
+                subprocess.PIPE
+                if command.ibazel_notify_changes
+                else subprocess.DEVNULL
+            )
+        processes.append(
+            (command, _run_command(command, block=False, **command_kwargs))
+        )
 
     threads = []
     if forward_stdin:
         stdin_thread = threading.Thread(target=_forward_stdin, args=(processes,))
         stdin_thread.start()
         threads.append(stdin_thread)
+
+    if ibazel_notify_changes:
+        ibazel_processes = [
+            (command, process)
+            for command, process in processes
+            if command.ibazel_notify_changes
+        ]
+        ibazel_thread = threading.Thread(target=_forward_stdin, args=(ibazel_processes, True))
+        ibazel_thread.start()
+        threads.append(ibazel_thread)
 
     success = True
     try:
@@ -133,13 +160,21 @@ def _main(instructions_path: str, extra_args: List[str]) -> None:
     workspace_name = instructions["workspace_name"]
     commands = [
         Command(_script_path(workspace_name, blob["path"]), blob["tag"],
-                blob["args"] + extra_args, blob["env"])
+                blob["args"] + extra_args, blob["env"],
+                blob.get("ibazel_notify_changes", False) or blob.get("ibazel_notify_changes_v1", False),
+                blob.get("ibazel_notify_changes_v1", False))
         for blob in instructions["commands"]
     ]
     parallel = instructions["jobs"] == 0
     print_command: bool = instructions["print_command"]
     if parallel:
-        success = _perform_concurrently(commands, print_command, instructions["buffer_output"], instructions["forward_stdin"])
+        success = _perform_concurrently(
+            commands,
+            print_command,
+            instructions["buffer_output"],
+            instructions["forward_stdin"],
+            instructions.get("ibazel_notify_changes", False),
+        )
     else:
         success = _perform_serially(commands, print_command, instructions["keep_going"])
 

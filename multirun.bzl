@@ -8,13 +8,14 @@ load("@bazel_skylib//lib:shell.bzl", "shell")
 load(
     "//internal:constants.bzl",
     "CommandInfo",
+    "IBazelInfo",
     "RUNFILES_PREFIX",
     "rlocation_path",
     "update_attrs",
 )
 
 _BinaryArgsEnvInfo = provider(
-    fields = ["args", "env"],
+    fields = ["args", "env", "ibazel_notify_changes", "ibazel_notify_changes_v1"],
     doc = "The arguments and environment to use when running the binary",
 )
 
@@ -25,11 +26,18 @@ def _binary_args_env_aspect_impl(target, ctx):
     is_executable = target.files_to_run != None and target.files_to_run.executable != None
     args = getattr(ctx.rule.attr, "args", [])
     env = dict(getattr(ctx.rule.attr, "env", {}))
+    tags = getattr(ctx.rule.attr, "tags", [])
+    ibazel_notify_changes_v1 = "ibazel_notify_changes_v1" in tags
+    ibazel_notify_changes = "ibazel_notify_changes" in tags or ibazel_notify_changes_v1
+
+    if IBazelInfo in target:
+        ibazel_notify_changes = target[IBazelInfo].notify_changes
+        ibazel_notify_changes_v1 = target[IBazelInfo].notify_changes_v1
 
     if RunEnvironmentInfo in target:
         env.update(target[RunEnvironmentInfo].environment)
 
-    if is_executable and (args or env):
+    if is_executable and (args or env or ibazel_notify_changes):
         expansion_targets = getattr(ctx.rule.attr, "data", [])
         if expansion_targets:
             args = [
@@ -40,7 +48,12 @@ def _binary_args_env_aspect_impl(target, ctx):
                 name: ctx.expand_location(val, expansion_targets)
                 for name, val in env.items()
             }
-        return [_BinaryArgsEnvInfo(args = args, env = env)]
+        return [_BinaryArgsEnvInfo(
+            args = args,
+            env = env,
+            ibazel_notify_changes = ibazel_notify_changes,
+            ibazel_notify_changes_v1 = ibazel_notify_changes_v1,
+        )]
 
     return []
 
@@ -66,6 +79,7 @@ def _multirun_impl(ctx):
     commands = []
     tagged_commands = []
     runfiles_files = []
+    has_ibazel_notify_changes = False
     for command in ctx.attr.commands:
         tagged_commands.append(struct(tag = str(command.label), command = command))
 
@@ -82,9 +96,14 @@ def _multirun_impl(ctx):
 
         args = []
         env = {}
+        ibazel_notify_changes = False
+        ibazel_notify_changes_v1 = False
         if _BinaryArgsEnvInfo in command:
             args = command[_BinaryArgsEnvInfo].args
             env = command[_BinaryArgsEnvInfo].env
+            ibazel_notify_changes = command[_BinaryArgsEnvInfo].ibazel_notify_changes
+            ibazel_notify_changes_v1 = command[_BinaryArgsEnvInfo].ibazel_notify_changes_v1
+        has_ibazel_notify_changes = has_ibazel_notify_changes or ibazel_notify_changes
 
         default_runfiles = default_info.default_runfiles
         if default_runfiles != None:
@@ -100,6 +119,8 @@ def _multirun_impl(ctx):
             path = exe.short_path,
             args = args,
             env = env,
+            ibazel_notify_changes = ibazel_notify_changes,
+            ibazel_notify_changes_v1 = ibazel_notify_changes_v1,
         ))
 
     runfiles = ctx.runfiles(files = [instructions_file, runner_exe]).merge_all(transitive_runfiles)
@@ -108,6 +129,12 @@ def _multirun_impl(ctx):
         fail("'jobs' attribute should be at least 0")
     elif ctx.attr.jobs > 0 and ctx.attr.forward_stdin:
         fail("'forward_stdin' can only apply to parallel jobs ('jobs' === 0)")
+    elif ctx.attr.jobs > 0 and ctx.attr.ibazel_notify_changes:
+        fail("'ibazel_notify_changes' can only apply to parallel jobs ('jobs' === 0)")
+    elif ctx.attr.forward_stdin and ctx.attr.ibazel_notify_changes:
+        fail("'forward_stdin' and 'ibazel_notify_changes' cannot both be enabled")
+    elif ctx.attr.ibazel_notify_changes and not has_ibazel_notify_changes:
+        fail("'ibazel_notify_changes' requires at least one capable command")
 
     jobs = ctx.attr.jobs
     instructions = struct(
@@ -117,6 +144,7 @@ def _multirun_impl(ctx):
         keep_going = ctx.attr.keep_going,
         buffer_output = ctx.attr.buffer_output,
         forward_stdin = ctx.attr.forward_stdin,
+        ibazel_notify_changes = ctx.attr.ibazel_notify_changes,
         workspace_name = ctx.workspace_name,
     )
     ctx.actions.write(
@@ -185,6 +213,10 @@ def multirun_with_transition(cfg, allowlist = None):
             default = False,
             doc = "Whether or not to forward stdin",
         ),
+        "ibazel_notify_changes": attr.bool(
+            default = False,
+            doc = "Forward iBazel incremental build notifications only to commands that advertise the `ibazel_notify_changes` capability.",
+        ),
         "_bash_runfiles": attr.label(
             default = Label("@bazel_tools//tools/bash/runfiles"),
         ),
@@ -250,4 +282,41 @@ multiple tools.
 """,
     )
 
-multirun = multirun_with_transition("target")
+_multirun = multirun_with_transition("target")
+
+def multirun(name, tags = [], ibazel_notify_changes = False, **kwargs):
+    """Runs multiple commands, optionally preserving iBazel notifications.
+
+    Commands tagged `ibazel_notify_changes`, such as `js_run_devserver`, receive
+    incremental build messages on stdin. Other commands receive no stdin, which
+    prevents them from consuming iBazel's control protocol. Non-capable commands
+    are not restarted after rebuilds, so they must handle their own source
+    watching.
+
+    Args:
+        name: A unique name for this target.
+        tags: Additional tags for the generated target.
+        ibazel_notify_changes: Whether to enable iBazel notification forwarding.
+            This also runs commands in parallel and advertises the legacy and
+            structured protocols to iBazel.
+        **kwargs: Additional `multirun` attributes.
+    """
+    if ibazel_notify_changes:
+        if kwargs.get("jobs", 0) != 0:
+            fail("'ibazel_notify_changes' requires parallel jobs ('jobs' === 0)")
+        if kwargs.get("forward_stdin", False):
+            fail("'forward_stdin' and 'ibazel_notify_changes' cannot both be enabled")
+        kwargs["jobs"] = 0
+        tags = tags + [
+            "ibazel_live_reload",
+            "ibazel_notify_changes",
+            "ibazel_notify_changes_v1",
+            "supports_incremental_build_protocol",
+        ]
+
+    _multirun(
+        name = name,
+        ibazel_notify_changes = ibazel_notify_changes,
+        tags = tags,
+        **kwargs
+    )
