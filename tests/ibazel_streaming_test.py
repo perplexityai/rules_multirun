@@ -7,6 +7,9 @@ import threading
 from typing import TextIO
 
 
+_TIMEOUT_SECONDS = 60 if os.name == "nt" else 10
+
+
 def _read_lines(stream: TextIO, lines: queue.Queue[str]) -> None:
     for line in stream:
         lines.put(line)
@@ -30,7 +33,7 @@ def _main() -> None:
     assert process.stdout is not None
 
     lines: queue.Queue[str] = queue.Queue()
-    reader = threading.Thread(target=_read_lines, args=(process.stdout, lines))
+    reader = threading.Thread(target=_read_lines, args=(process.stdout, lines), daemon=True)
     reader.start()
 
     legacy_notification = "IBAZEL_BUILD_COMPLETED SUCCESS"
@@ -43,11 +46,18 @@ def _main() -> None:
         while len([line for line in output if legacy_notification in line]) < 2 or not any(
             structured_notification in line for line in output
         ):
-            output.append(lines.get(timeout=10))
+            try:
+                output.append(lines.get(timeout=_TIMEOUT_SECONDS))
+            except queue.Empty as error:
+                raise AssertionError(f"Timed out waiting for output: {output!r}") from error
     finally:
         process.stdin.close()
-        process.wait(timeout=10)
-        reader.join(timeout=10)
+        try:
+            process.wait(timeout=_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        reader.join(timeout=_TIMEOUT_SECONDS)
 
     assert f"capable: {legacy_notification}\n" in output
     assert f"wrapped: {legacy_notification}\n" in output
