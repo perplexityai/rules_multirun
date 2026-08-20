@@ -72,7 +72,7 @@ multirun(
 
 Run it with `ibazel run //:dev`. Commands tagged `ibazel_notify_changes`
 receive build notifications on stdin and remain alive across rebuilds. Commands
-that cannot consume the protocol can instead declare selective restart paths:
+that cannot consume the protocol can instead use affected-target restarts:
 
 ```bzl
 load("@rules_multirun//:defs.bzl", "command", "multirun")
@@ -80,8 +80,6 @@ load("@rules_multirun//:defs.bzl", "command", "multirun")
 command(
     name = "backend_dev",
     command = ":backend",
-    ibazel_restart_on = ["backend"],
-    ibazel_restart_on_unknown_graph = True,
 )
 
 multirun(
@@ -90,24 +88,21 @@ multirun(
         ":frontend_devserver",
         ":backend_dev",
     ],
-    ibazel_known_graph_roots = [
-        "backend",
-        "frontend",
-    ],
     ibazel_notify_changes = True,
+    ibazel_restart_affected_commands = True,
 )
 ```
 
 After each successful structured build event, `multirun` restarts only commands
-whose path prefixes match a changed file. The initial build does not restart
-commands. `ibazel_restart_on_unknown_graph` provides a safe fallback for graph
-changes outside `ibazel_known_graph_roots`. A command cannot both consume
-notifications and use managed restarts.
+whose Bazel labels iBazel reports as affected. The initial build does not restart
+commands. If iBazel cannot completely attribute a change, `multirun` safely
+restarts every non-notification command. No path routing is configured in the
+BUILD file.
 
 Commands that only advertise `ibazel_notify_changes` receive the legacy
 protocol. Commands that advertise `ibazel_notify_changes_v1` additionally
 receive structured `IBAZEL_EVENT` messages containing changed files. Selective
-restarts require those structured version 1 events.
+restarts require structured version 1 events with affected-target attribution.
 
 See [the full API docs](doc) for more info.
 

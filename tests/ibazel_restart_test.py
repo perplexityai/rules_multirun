@@ -10,12 +10,20 @@ from pathlib import Path
 _TIMEOUT_SECONDS = 60 if os.name == "nt" else 10
 
 
-def _event(path: str, kind: str = "source", success: bool = True) -> str:
+def _event(
+    path: str,
+    kind: str = "source",
+    success: bool = True,
+    affected_targets: list[str] | None = None,
+    affected_targets_complete: bool = True,
+) -> str:
     payload = {
         "version": 1,
         "type": "build_completed",
         "success": success,
         "changes": [{"path": path, "kind": kind}],
+        "affected_targets": affected_targets or [],
+        "affected_targets_complete": affected_targets_complete,
     }
     return "IBAZEL_EVENT " + json.dumps(payload, separators=(",", ":"))
 
@@ -23,11 +31,34 @@ def _event(path: str, kind: str = "source", success: bool = True) -> str:
 def _wait_for_launches(path: Path, expected: dict[str, int]) -> None:
     deadline = time.monotonic() + _TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        launches = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        launches = _launches(path)
         if all(launches.count(name) >= count for name, count in expected.items()):
             return
         time.sleep(0.05)
     raise AssertionError(f"Timed out waiting for launches {expected}: {launches}")
+
+
+def _launches(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return [line.split()[0] for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def _wait_for_processes_to_exit(path: Path) -> None:
+    pids = [int(line.split()[1]) for line in path.read_text(encoding="utf-8").splitlines()]
+    deadline = time.monotonic() + _TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        alive = []
+        for pid in pids:
+            try:
+                os.kill(pid, 0)
+                alive.append(pid)
+            except ProcessLookupError:
+                pass
+        if not alive:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"Child processes still running: {alive}")
 
 
 def _main() -> None:
@@ -44,17 +75,32 @@ def _main() -> None:
         try:
             _wait_for_launches(launch_log, {"rpc": 1, "electron": 1})
 
-            process.stdin.write(_event("pplx/rust/initial.rs") + "\n")
+            process.stdin.write(
+                _event("pplx/rust/initial.rs", affected_targets=["//tests:ibazel_restart_rpc"]) + "\n"
+            )
             process.stdin.flush()
             time.sleep(0.2)
-            assert launch_log.read_text(encoding="utf-8").splitlines().count("rpc") == 1
+            assert _launches(launch_log).count("rpc") == 1
 
-            process.stdin.write(_event("pplx/rust/src/lib.rs", success=False) + "\n")
+            process.stdin.write(
+                _event(
+                    "pplx/rust/src/lib.rs",
+                    success=False,
+                    affected_targets=["//tests:ibazel_restart_rpc"],
+                )
+                + "\n"
+            )
             process.stdin.flush()
             time.sleep(0.2)
-            assert launch_log.read_text(encoding="utf-8").splitlines().count("rpc") == 1
+            assert _launches(launch_log).count("rpc") == 1
 
-            process.stdin.write(_event("pplx/rust/src/lib.rs") + "\n")
+            process.stdin.write(
+                _event(
+                    "pplx/rust/src/lib.rs",
+                    affected_targets=["//tests:ibazel_restart_rpc"],
+                )
+                + "\n"
+            )
             process.stdin.flush()
             _wait_for_launches(launch_log, {"rpc": 2, "electron": 1})
 
@@ -63,11 +109,18 @@ def _main() -> None:
             )
             process.stdin.flush()
             time.sleep(0.2)
-            launches = launch_log.read_text(encoding="utf-8").splitlines()
+            launches = _launches(launch_log)
             assert launches.count("rpc") == 2
             assert launches.count("electron") == 1
 
-            process.stdin.write(_event("MODULE.bazel", "graph") + "\n")
+            process.stdin.write(
+                _event(
+                    "MODULE.bazel",
+                    "graph",
+                    affected_targets_complete=False,
+                )
+                + "\n"
+            )
             process.stdin.flush()
             _wait_for_launches(launch_log, {"rpc": 3, "electron": 2})
         finally:
@@ -79,6 +132,18 @@ def _main() -> None:
                 process.wait()
 
         assert process.returncode == 0
+
+        if os.name != "nt":
+            termination_log = Path(temp_dir) / "termination-launches.txt"
+            termination_process = subprocess.Popen(
+                [sys.argv[1], str(termination_log)],
+                stdin=subprocess.PIPE,
+                text=True,
+            )
+            _wait_for_launches(termination_log, {"rpc": 1, "electron": 1})
+            termination_process.terminate()
+            termination_process.wait(timeout=_TIMEOUT_SECONDS)
+            _wait_for_processes_to_exit(termination_log)
 
 
 if __name__ == "__main__":

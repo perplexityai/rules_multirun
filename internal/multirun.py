@@ -20,12 +20,11 @@ _RESTART_TIMEOUT_SECONDS = 5
 class Command(NamedTuple):
     path: str
     tag: str
+    label: str
     args: List[str]
     env: Dict[str, str]
     ibazel_notify_changes: bool
     ibazel_notify_changes_v1: bool
-    ibazel_restart_on: List[str]
-    ibazel_restart_on_unknown_graph: bool
 
 
 def _run_command(command: Command, block: bool, **kwargs) -> Union[int, subprocess.Popen]:
@@ -161,37 +160,23 @@ def _parse_ibazel_event(line: str) -> Union[dict, None]:
     return payload
 
 
-def _matches_prefix(path: str, prefixes: List[str], workspace: str) -> bool:
-    candidate = os.path.normpath(path)
-    if os.path.isabs(candidate):
-        candidate = os.path.relpath(candidate, workspace)
-    return any(
-        candidate == os.path.normpath(prefix)
-        or candidate.startswith(os.path.normpath(prefix) + os.sep)
-        for prefix in prefixes
-    )
-
-
-def _restart_reason(command: Command, event: dict, known_graph_roots: List[str], workspace: str) -> Union[str, None]:
-    if not event.get("success"):
+def _restart_reason(command: Command, event: dict, restart_affected_commands: bool) -> Union[str, None]:
+    if not restart_affected_commands or command.ibazel_notify_changes or not event.get("success"):
         return None
-    changed_paths = []
-    for change in event.get("changes", []):
-        path = change.get("path", "")
-        if _matches_prefix(path, command.ibazel_restart_on, workspace):
-            changed_paths.append(path)
-            continue
-        if change.get("kind") != "graph":
-            continue
-        if command.ibazel_restart_on_unknown_graph and not _matches_prefix(path, known_graph_roots, workspace):
-            changed_paths.append(path or "unknown graph change")
-    return ", ".join(changed_paths) or None
+    if not event.get("affected_targets_complete", False):
+        return "change ownership incomplete"
+    if command.label in event.get("affected_targets", []):
+        return f"{command.label} affected"
+    return None
+
+
+def _raise_keyboard_interrupt(_signum, _frame) -> None:
+    raise KeyboardInterrupt
 
 
 def _route_ibazel_events(
     processes: List[_ManagedProcess],
-    known_graph_roots: List[str],
-    workspace: str,
+    restart_affected_commands: bool,
     input_closed: threading.Event,
     shutdown: threading.Event,
 ) -> None:
@@ -212,7 +197,7 @@ def _route_ibazel_events(
             initial_build = False
             continue
         for process in processes:
-            reason = _restart_reason(process.command, event, known_graph_roots, workspace)
+            reason = _restart_reason(process.command, event, restart_affected_commands)
             if reason is not None:
                 process.restart(reason)
 
@@ -228,22 +213,21 @@ def _route_ibazel_events(
     shutdown.set()
 
 
-def _perform_ibazel_concurrently(commands: List[Command], known_graph_roots: List[str]) -> bool:
+def _perform_ibazel_concurrently(commands: List[Command], restart_affected_commands: bool) -> bool:
     processes = [_ManagedProcess(command) for command in commands]
-    roots = list(known_graph_roots)
-    for command in commands:
-        roots.extend(command.ibazel_restart_on)
-    workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY", os.getcwd())
     input_closed = threading.Event()
     shutdown = threading.Event()
     event_thread = threading.Thread(
         target=_route_ibazel_events,
-        args=(processes, roots, workspace, input_closed, shutdown),
+        args=(processes, restart_affected_commands, input_closed, shutdown),
         daemon=True,
     )
     event_thread.start()
 
     success = True
+    previous_sigterm = None
+    if platform.system() != "Windows":
+        previous_sigterm = signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
     try:
         while not shutdown.is_set():
             if input_closed.is_set():
@@ -263,6 +247,8 @@ def _perform_ibazel_concurrently(commands: List[Command], known_graph_roots: Lis
         for process in processes:
             process.terminate()
         event_thread.join(timeout=_RESTART_TIMEOUT_SECONDS)
+        if previous_sigterm is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm)
     return success
 
 def _perform_concurrently(commands: List[Command], print_command: bool, buffer_output: bool, forward_stdin: bool, ibazel_notify_changes: bool) -> bool:
@@ -367,12 +353,10 @@ def _main(instructions_path: str, extra_args: List[str]) -> None:
 
     workspace_name = instructions["workspace_name"]
     commands = [
-        Command(_script_path(workspace_name, blob["path"]), blob["tag"],
+        Command(_script_path(workspace_name, blob["path"]), blob["tag"], blob.get("label", ""),
                 blob["args"] + extra_args, blob["env"],
                 blob.get("ibazel_notify_changes", False) or blob.get("ibazel_notify_changes_v1", False),
-                blob.get("ibazel_notify_changes_v1", False),
-                blob.get("ibazel_restart_on", []),
-                blob.get("ibazel_restart_on_unknown_graph", False))
+                blob.get("ibazel_notify_changes_v1", False))
         for blob in instructions["commands"]
     ]
     parallel = instructions["jobs"] == 0
@@ -380,7 +364,7 @@ def _main(instructions_path: str, extra_args: List[str]) -> None:
     if parallel and instructions.get("ibazel_notify_changes", False):
         success = _perform_ibazel_concurrently(
             commands,
-            instructions.get("ibazel_known_graph_roots", []),
+            instructions.get("ibazel_restart_affected_commands", False),
         )
     elif parallel:
         success = _perform_concurrently(

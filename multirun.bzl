@@ -15,16 +15,13 @@ load(
 )
 
 _BinaryArgsEnvInfo = provider(
-    fields = [
-        "args",
-        "env",
-        "ibazel_notify_changes",
-        "ibazel_notify_changes_v1",
-        "ibazel_restart_on",
-        "ibazel_restart_on_unknown_graph",
-    ],
+    fields = ["args", "env", "ibazel_notify_changes", "ibazel_notify_changes_v1"],
     doc = "The arguments and environment to use when running the binary",
 )
+
+def _ibazel_command_label(label):
+    value = str(label)
+    return value[2:] if value.startswith("@@//") else value
 
 def _binary_args_env_aspect_impl(target, ctx):
     if _BinaryArgsEnvInfo in target:
@@ -36,19 +33,14 @@ def _binary_args_env_aspect_impl(target, ctx):
     tags = getattr(ctx.rule.attr, "tags", [])
     ibazel_notify_changes_v1 = "ibazel_notify_changes_v1" in tags
     ibazel_notify_changes = "ibazel_notify_changes" in tags or ibazel_notify_changes_v1
-    ibazel_restart_on = []
-    ibazel_restart_on_unknown_graph = False
-
     if IBazelInfo in target:
         ibazel_notify_changes = target[IBazelInfo].notify_changes
         ibazel_notify_changes_v1 = target[IBazelInfo].notify_changes_v1
-        ibazel_restart_on = target[IBazelInfo].restart_on
-        ibazel_restart_on_unknown_graph = target[IBazelInfo].restart_on_unknown_graph
 
     if RunEnvironmentInfo in target:
         env.update(target[RunEnvironmentInfo].environment)
 
-    if is_executable and (args or env or ibazel_notify_changes or ibazel_restart_on):
+    if is_executable and (args or env or ibazel_notify_changes):
         expansion_targets = getattr(ctx.rule.attr, "data", [])
         if expansion_targets:
             args = [
@@ -64,8 +56,6 @@ def _binary_args_env_aspect_impl(target, ctx):
             env = env,
             ibazel_notify_changes = ibazel_notify_changes,
             ibazel_notify_changes_v1 = ibazel_notify_changes_v1,
-            ibazel_restart_on = ibazel_restart_on,
-            ibazel_restart_on_unknown_graph = ibazel_restart_on_unknown_graph,
         )]
 
     return []
@@ -111,16 +101,12 @@ def _multirun_impl(ctx):
         env = {}
         ibazel_notify_changes = False
         ibazel_notify_changes_v1 = False
-        ibazel_restart_on = []
-        ibazel_restart_on_unknown_graph = False
         if _BinaryArgsEnvInfo in command:
             args = command[_BinaryArgsEnvInfo].args
             env = command[_BinaryArgsEnvInfo].env
             ibazel_notify_changes = command[_BinaryArgsEnvInfo].ibazel_notify_changes
             ibazel_notify_changes_v1 = command[_BinaryArgsEnvInfo].ibazel_notify_changes_v1
-            ibazel_restart_on = command[_BinaryArgsEnvInfo].ibazel_restart_on
-            ibazel_restart_on_unknown_graph = command[_BinaryArgsEnvInfo].ibazel_restart_on_unknown_graph
-        has_ibazel_notify_changes = has_ibazel_notify_changes or ibazel_notify_changes or bool(ibazel_restart_on)
+        has_ibazel_notify_changes = has_ibazel_notify_changes or ibazel_notify_changes
 
         default_runfiles = default_info.default_runfiles
         if default_runfiles != None:
@@ -133,13 +119,12 @@ def _multirun_impl(ctx):
 
         commands.append(struct(
             tag = tag,
+            label = _ibazel_command_label(command.label),
             path = exe.short_path,
             args = args,
             env = env,
             ibazel_notify_changes = ibazel_notify_changes,
             ibazel_notify_changes_v1 = ibazel_notify_changes_v1,
-            ibazel_restart_on = ibazel_restart_on,
-            ibazel_restart_on_unknown_graph = ibazel_restart_on_unknown_graph,
         ))
 
     runfiles = ctx.runfiles(files = [instructions_file, runner_exe]).merge_all(transitive_runfiles)
@@ -152,7 +137,9 @@ def _multirun_impl(ctx):
         fail("'ibazel_notify_changes' can only apply to parallel jobs ('jobs' === 0)")
     elif ctx.attr.forward_stdin and ctx.attr.ibazel_notify_changes:
         fail("'forward_stdin' and 'ibazel_notify_changes' cannot both be enabled")
-    elif ctx.attr.ibazel_notify_changes and not has_ibazel_notify_changes:
+    elif ctx.attr.ibazel_restart_affected_commands and not ctx.attr.ibazel_notify_changes:
+        fail("'ibazel_restart_affected_commands' requires 'ibazel_notify_changes'")
+    elif ctx.attr.ibazel_notify_changes and not has_ibazel_notify_changes and not ctx.attr.ibazel_restart_affected_commands:
         fail("'ibazel_notify_changes' requires at least one capable command")
 
     jobs = ctx.attr.jobs
@@ -164,7 +151,7 @@ def _multirun_impl(ctx):
         buffer_output = ctx.attr.buffer_output,
         forward_stdin = ctx.attr.forward_stdin,
         ibazel_notify_changes = ctx.attr.ibazel_notify_changes,
-        ibazel_known_graph_roots = ctx.attr.ibazel_known_graph_roots,
+        ibazel_restart_affected_commands = ctx.attr.ibazel_restart_affected_commands,
         workspace_name = ctx.workspace_name,
     )
     ctx.actions.write(
@@ -237,8 +224,9 @@ def multirun_with_transition(cfg, allowlist = None):
             default = False,
             doc = "Forward iBazel incremental build notifications only to commands that advertise the `ibazel_notify_changes` capability.",
         ),
-        "ibazel_known_graph_roots": attr.string_list(
-            doc = "Workspace-relative graph roots used to distinguish routed graph changes from unknown graph changes for selective restarts.",
+        "ibazel_restart_affected_commands": attr.bool(
+            default = False,
+            doc = "Restart non-notification commands affected by structured iBazel changes. Falls back to restarting all such commands when ownership is incomplete.",
         ),
         "_bash_runfiles": attr.label(
             default = Label("@bazel_tools//tools/bash/runfiles"),
@@ -307,13 +295,12 @@ multiple tools.
 
 _multirun = multirun_with_transition("target")
 
-def multirun(name, tags = [], ibazel_notify_changes = False, **kwargs):
+def multirun(name, tags = [], ibazel_notify_changes = False, ibazel_restart_affected_commands = False, **kwargs):
     """Runs multiple commands, optionally preserving iBazel notifications.
 
     Commands tagged `ibazel_notify_changes`, such as `js_run_devserver`, receive
-    incremental build messages on stdin. Wrapped commands can instead use
-    `ibazel_restart_on` for selective managed restarts after successful structured
-    build events.
+    incremental build messages on stdin. With affected-command restarts enabled,
+    other commands restart only when iBazel reports their Bazel labels as affected.
 
     Args:
         name: A unique name for this target.
@@ -321,8 +308,13 @@ def multirun(name, tags = [], ibazel_notify_changes = False, **kwargs):
         ibazel_notify_changes: Whether to enable iBazel notification forwarding.
             This also runs commands in parallel and advertises the legacy and
             structured protocols to iBazel.
+        ibazel_restart_affected_commands: Whether to restart non-notification
+            commands affected by each successful structured build event.
         **kwargs: Additional `multirun` attributes.
     """
+    if ibazel_restart_affected_commands and not ibazel_notify_changes:
+        fail("'ibazel_restart_affected_commands' requires 'ibazel_notify_changes'")
+
     if ibazel_notify_changes:
         if kwargs.get("jobs", 0) != 0:
             fail("'ibazel_notify_changes' requires parallel jobs ('jobs' === 0)")
@@ -339,6 +331,7 @@ def multirun(name, tags = [], ibazel_notify_changes = False, **kwargs):
     _multirun(
         name = name,
         ibazel_notify_changes = ibazel_notify_changes,
+        ibazel_restart_affected_commands = ibazel_restart_affected_commands,
         tags = tags,
         **kwargs
     )

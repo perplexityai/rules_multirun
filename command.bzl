@@ -37,8 +37,6 @@ def _expand_and_quote(*, ctx, attr, string, targets):
         return shell.quote(expanded)
 
 def _command_impl(ctx):
-    if ctx.attr.ibazel_restart_on_unknown_graph and not ctx.attr.ibazel_restart_on:
-        fail("'ibazel_restart_on_unknown_graph' requires 'ibazel_restart_on'")
     transitive_runfiles = [ctx.attr._bash_runfiles[DefaultInfo].default_runfiles]
 
     for data_dep in ctx.attr.data:
@@ -106,14 +104,10 @@ def _command_impl(ctx):
             ),
         )
 
-    if ctx.attr.ibazel_notify_changes or ctx.attr.ibazel_notify_changes_v1 or ctx.attr.ibazel_restart_on:
-        if ctx.attr.ibazel_restart_on and (ctx.attr.ibazel_notify_changes or ctx.attr.ibazel_notify_changes_v1):
-            fail("iBazel notifications cannot be both forwarded to and used to restart a command")
+    if ctx.attr.ibazel_notify_changes or ctx.attr.ibazel_notify_changes_v1:
         providers.append(IBazelInfo(
-            notify_changes = ctx.attr.ibazel_notify_changes or ctx.attr.ibazel_notify_changes_v1,
+            notify_changes = True,
             notify_changes_v1 = ctx.attr.ibazel_notify_changes_v1,
-            restart_on = ctx.attr.ibazel_restart_on,
-            restart_on_unknown_graph = ctx.attr.ibazel_restart_on_unknown_graph,
         ))
 
     return providers
@@ -148,13 +142,6 @@ def command_with_transition(cfg, allowlist = None, doc = None):
         "ibazel_notify_changes_v1": attr.bool(
             default = False,
             doc = "Also forward structured `IBAZEL_EVENT` notifications to this command. This implies `ibazel_notify_changes`.",
-        ),
-        "ibazel_restart_on": attr.string_list(
-            doc = "Workspace-relative path prefixes whose successful structured iBazel changes restart this command. Cannot be combined with notification forwarding on the same command.",
-        ),
-        "ibazel_restart_on_unknown_graph": attr.bool(
-            default = False,
-            doc = "Restart this command for graph changes outside the multirun's known graph roots. Requires `ibazel_restart_on`.",
         ),
         "command": attr.label(
             mandatory = True,

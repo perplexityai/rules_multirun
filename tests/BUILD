@@ -127,16 +127,14 @@ command(
     name = "ibazel_restart_rpc",
     arguments = ["rpc"],
     command = ":ibazel_restart_child",
-    ibazel_restart_on = ["pplx/rust"],
-    ibazel_restart_on_unknown_graph = True,
+    data = ["ibazel_restart_rpc_input.txt"],
 )
 
 command(
     name = "ibazel_restart_electron",
     arguments = ["electron"],
     command = ":ibazel_restart_child",
-    ibazel_restart_on = ["pplx/frontend/apps/electron"],
-    ibazel_restart_on_unknown_graph = True,
+    data = ["ibazel_restart_electron_input.txt"],
 )
 
 multirun(
@@ -145,12 +143,8 @@ multirun(
         ":ibazel_restart_rpc",
         ":ibazel_restart_electron",
     ],
-    ibazel_known_graph_roots = [
-        "pplx/frontend/apps/electron",
-        "pplx/frontend/apps/renderer",
-        "pplx/rust",
-    ],
     ibazel_notify_changes = True,
+    ibazel_restart_affected_commands = True,
 )
 
 py_test(
