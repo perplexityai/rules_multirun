@@ -117,6 +117,43 @@ py_test(
     data = [":ibazel_multirun"],
 )
 
+py_binary(
+    name = "ibazel_restart_child",
+    srcs = ["ibazel_restart_child.py"],
+    main = "ibazel_restart_child.py",
+)
+
+command(
+    name = "ibazel_restart_rpc",
+    arguments = ["rpc"],
+    command = ":ibazel_restart_child",
+    data = ["ibazel_restart_rpc_input.txt"],
+)
+
+command(
+    name = "ibazel_restart_electron",
+    arguments = ["electron"],
+    command = ":ibazel_restart_child",
+    data = ["ibazel_restart_electron_input.txt"],
+)
+
+multirun(
+    name = "ibazel_restart_multirun",
+    commands = [
+        ":ibazel_restart_rpc",
+        ":ibazel_restart_electron",
+    ],
+    ibazel_notify_changes = True,
+    ibazel_restart_affected_commands = True,
+)
+
+py_test(
+    name = "ibazel_restart_test",
+    srcs = ["ibazel_restart_test.py"],
+    args = ["$(rootpath :ibazel_restart_multirun)"],
+    data = [":ibazel_restart_multirun"],
+)
+
 sh_binary(
     name = "validate_args",
     srcs = ["validate-args.sh"],
@@ -339,6 +376,7 @@ sh_test(
         ":hello",
         ":hello2",
         ":ibazel_multirun",
+        ":ibazel_restart_multirun",
         ":multirun_binary_args",
         ":multirun_binary_args_location",
         ":multirun_binary_env",

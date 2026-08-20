@@ -130,16 +130,14 @@ to apply to all of your commands. See also multirun_with_transition.
 <pre>
 load("@rules_multirun//:defs.bzl", "multirun")
 
-multirun(<a href="#multirun-name">name</a>, <a href="#multirun-tags">tags</a>, <a href="#multirun-ibazel_notify_changes">ibazel_notify_changes</a>, <a href="#multirun-kwargs">**kwargs</a>)
+multirun(<a href="#multirun-name">name</a>, <a href="#multirun-tags">tags</a>, <a href="#multirun-ibazel_notify_changes">ibazel_notify_changes</a>, <a href="#multirun-ibazel_restart_affected_commands">ibazel_restart_affected_commands</a>, <a href="#multirun-kwargs">**kwargs</a>)
 </pre>
 
 Runs multiple commands, optionally preserving iBazel notifications.
 
 Commands tagged `ibazel_notify_changes`, such as `js_run_devserver`, receive
-incremental build messages on stdin. Other commands receive no stdin, which
-prevents them from consuming iBazel's control protocol. Non-capable commands
-are not restarted after rebuilds, so they must handle their own source
-watching.
+incremental build messages on stdin. With affected-command restarts enabled,
+other commands restart only when iBazel reports their Bazel labels as affected.
 
 
 **PARAMETERS**
@@ -150,6 +148,7 @@ watching.
 | <a id="multirun-name"></a>name |  A unique name for this target.   |  none |
 | <a id="multirun-tags"></a>tags |  Additional tags for the generated target.   |  `[]` |
 | <a id="multirun-ibazel_notify_changes"></a>ibazel_notify_changes |  Whether to enable iBazel notification forwarding. This also runs commands in parallel and advertises the legacy and structured protocols to iBazel.   |  `False` |
+| <a id="multirun-ibazel_restart_affected_commands"></a>ibazel_restart_affected_commands |  Whether to restart non-notification commands affected by each successful structured build event.   |  `False` |
 | <a id="multirun-kwargs"></a>kwargs |  Additional `multirun` attributes.   |  none |
 
 
