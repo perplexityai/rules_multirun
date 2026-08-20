@@ -26,7 +26,12 @@ CommandInfo = provider(
 )
 
 IBazelInfo = provider(
-    fields = ["notify_changes", "notify_changes_v1"],
+    fields = [
+        "notify_changes",
+        "notify_changes_v1",
+        "restart_on",
+        "restart_on_unknown_graph",
+    ],
     doc = "iBazel capabilities exposed by a command wrapper.",
 )
 

@@ -12,7 +12,8 @@ useful for running multiple linters or formatters with a single command.
 load("@rules_multirun//:defs.bzl", "command")
 
 command(<a href="#command-name">name</a>, <a href="#command-data">data</a>, <a href="#command-arguments">arguments</a>, <a href="#command-command">command</a>, <a href="#command-description">description</a>, <a href="#command-environment">environment</a>, <a href="#command-ibazel_notify_changes">ibazel_notify_changes</a>,
-        <a href="#command-ibazel_notify_changes_v1">ibazel_notify_changes_v1</a>, <a href="#command-run_from_workspace_root">run_from_workspace_root</a>)
+        <a href="#command-ibazel_notify_changes_v1">ibazel_notify_changes_v1</a>, <a href="#command-ibazel_restart_on">ibazel_restart_on</a>, <a href="#command-ibazel_restart_on_unknown_graph">ibazel_restart_on_unknown_graph</a>,
+        <a href="#command-run_from_workspace_root">run_from_workspace_root</a>)
 </pre>
 
 A command is a wrapper rule for some other target that can be run like a
@@ -61,6 +62,8 @@ command(
 | <a id="command-environment"></a>environment |  Dictionary of environment variables. Subject to [`$(location)` expansion](https://docs.bazel.build/versions/master/skylark/lib/ctx.html#expand_location)   | <a href="https://bazel.build/rules/lib/dict">Dictionary: String -> String</a> | optional |  `{}`  |
 | <a id="command-ibazel_notify_changes"></a>ibazel_notify_changes |  Forward legacy iBazel incremental build notifications to this command when its `multirun` enables notification forwarding.   | Boolean | optional |  `False`  |
 | <a id="command-ibazel_notify_changes_v1"></a>ibazel_notify_changes_v1 |  Also forward structured `IBAZEL_EVENT` notifications to this command. This implies `ibazel_notify_changes`.   | Boolean | optional |  `False`  |
+| <a id="command-ibazel_restart_on"></a>ibazel_restart_on |  Workspace-relative path prefixes whose successful structured iBazel changes restart this command. Cannot be combined with notification forwarding on the same command.   | List of strings | optional |  `[]`  |
+| <a id="command-ibazel_restart_on_unknown_graph"></a>ibazel_restart_on_unknown_graph |  Restart this command for graph changes outside the multirun's known graph roots. Requires `ibazel_restart_on`.   | Boolean | optional |  `False`  |
 | <a id="command-run_from_workspace_root"></a>run_from_workspace_root |  If true, the command will be run from the workspace root instead of the execution root   | Boolean | optional |  `False`  |
 
 
@@ -72,7 +75,8 @@ command(
 load("@rules_multirun//:defs.bzl", "command_force_opt")
 
 command_force_opt(<a href="#command_force_opt-name">name</a>, <a href="#command_force_opt-data">data</a>, <a href="#command_force_opt-arguments">arguments</a>, <a href="#command_force_opt-command">command</a>, <a href="#command_force_opt-description">description</a>, <a href="#command_force_opt-environment">environment</a>, <a href="#command_force_opt-ibazel_notify_changes">ibazel_notify_changes</a>,
-                  <a href="#command_force_opt-ibazel_notify_changes_v1">ibazel_notify_changes_v1</a>, <a href="#command_force_opt-run_from_workspace_root">run_from_workspace_root</a>)
+                  <a href="#command_force_opt-ibazel_notify_changes_v1">ibazel_notify_changes_v1</a>, <a href="#command_force_opt-ibazel_restart_on">ibazel_restart_on</a>, <a href="#command_force_opt-ibazel_restart_on_unknown_graph">ibazel_restart_on_unknown_graph</a>,
+                  <a href="#command_force_opt-run_from_workspace_root">run_from_workspace_root</a>)
 </pre>
 
 A command that forces the compilation mode of the dependent targets to opt. This can be useful if your tools have improved performance if built with optimizations. See the documentation for command for more examples. If you'd like to always use this variation you can import this directly and rename it for convenience like:
@@ -94,6 +98,8 @@ load("@rules_multirun//:defs.bzl", "multirun", command = "command_force_opt")
 | <a id="command_force_opt-environment"></a>environment |  Dictionary of environment variables. Subject to [`$(location)` expansion](https://docs.bazel.build/versions/master/skylark/lib/ctx.html#expand_location)   | <a href="https://bazel.build/rules/lib/dict">Dictionary: String -> String</a> | optional |  `{}`  |
 | <a id="command_force_opt-ibazel_notify_changes"></a>ibazel_notify_changes |  Forward legacy iBazel incremental build notifications to this command when its `multirun` enables notification forwarding.   | Boolean | optional |  `False`  |
 | <a id="command_force_opt-ibazel_notify_changes_v1"></a>ibazel_notify_changes_v1 |  Also forward structured `IBAZEL_EVENT` notifications to this command. This implies `ibazel_notify_changes`.   | Boolean | optional |  `False`  |
+| <a id="command_force_opt-ibazel_restart_on"></a>ibazel_restart_on |  Workspace-relative path prefixes whose successful structured iBazel changes restart this command. Cannot be combined with notification forwarding on the same command.   | List of strings | optional |  `[]`  |
+| <a id="command_force_opt-ibazel_restart_on_unknown_graph"></a>ibazel_restart_on_unknown_graph |  Restart this command for graph changes outside the multirun's known graph roots. Requires `ibazel_restart_on`.   | Boolean | optional |  `False`  |
 | <a id="command_force_opt-run_from_workspace_root"></a>run_from_workspace_root |  If true, the command will be run from the workspace root instead of the execution root   | Boolean | optional |  `False`  |
 
 
@@ -136,10 +142,9 @@ multirun(<a href="#multirun-name">name</a>, <a href="#multirun-tags">tags</a>, <
 Runs multiple commands, optionally preserving iBazel notifications.
 
 Commands tagged `ibazel_notify_changes`, such as `js_run_devserver`, receive
-incremental build messages on stdin. Other commands receive no stdin, which
-prevents them from consuming iBazel's control protocol. Non-capable commands
-are not restarted after rebuilds, so they must handle their own source
-watching.
+incremental build messages on stdin. Wrapped commands can instead use
+`ibazel_restart_on` for selective managed restarts after successful structured
+build events.
 
 
 **PARAMETERS**
