@@ -21,7 +21,11 @@ _BinaryArgsEnvInfo = provider(
 
 def _ibazel_command_label(label):
     value = str(label)
-    return value[2:] if value.startswith("@@//") else value
+    if value.startswith("@@//"):
+        return value[2:]
+    if value.startswith("@//"):
+        return value[1:]
+    return value
 
 def _binary_args_env_aspect_impl(target, ctx):
     if _BinaryArgsEnvInfo in target:
