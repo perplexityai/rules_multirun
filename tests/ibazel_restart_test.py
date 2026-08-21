@@ -65,6 +65,7 @@ def _main() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         launch_log = Path(temp_dir) / "launches.txt"
         command = [sys.argv[1], str(launch_log)]
+        deferred = len(sys.argv) > 2 and sys.argv[2] == "deferred"
         if os.name == "nt":
             bash = os.environ.get("BAZEL_SH") or shutil.which("bash.exe")
             assert bash is not None
@@ -73,12 +74,24 @@ def _main() -> None:
         process = subprocess.Popen(command, stdin=subprocess.PIPE, text=True)
         assert process.stdin is not None
         try:
-            _wait_for_launches(launch_log, {"rpc": 1, "electron": 1})
+            if deferred:
+                process.stdin.write(
+                    _event(
+                        "pplx/rust/initial.rs",
+                        success=False,
+                        affected_targets=["//tests:ibazel_restart_rpc"],
+                    )
+                    + "\n"
+                )
+                process.stdin.flush()
+                time.sleep(0.2)
+                assert _launches(launch_log) == []
 
             process.stdin.write(
                 _event("pplx/rust/initial.rs", affected_targets=["//tests:ibazel_restart_rpc"]) + "\n"
             )
             process.stdin.flush()
+            _wait_for_launches(launch_log, {"rpc": 1, "electron": 1})
             time.sleep(0.2)
             assert _launches(launch_log).count("rpc") == 1
 
@@ -140,6 +153,13 @@ def _main() -> None:
                 stdin=subprocess.PIPE,
                 text=True,
             )
+            if deferred:
+                assert termination_process.stdin is not None
+                termination_process.stdin.write(
+                    _event("pplx/rust/initial.rs", affected_targets=["//tests:ibazel_restart_rpc"])
+                    + "\n"
+                )
+                termination_process.stdin.flush()
             _wait_for_launches(termination_log, {"rpc": 1, "electron": 1})
             termination_process.terminate()
             termination_process.wait(timeout=_TIMEOUT_SECONDS)

@@ -64,10 +64,10 @@ def _forward_stdin(procs: List[Tuple[Command, subprocess.Popen]], filter_structu
 
 
 class _ManagedProcess:
-    def __init__(self, command: Command) -> None:
+    def __init__(self, command: Command, start: bool = True) -> None:
         self.command = command
         self._lock = threading.Lock()
-        self._process = self._start()
+        self._process = self._start() if start else None
 
     def _start(self) -> subprocess.Popen:
         kwargs = {
@@ -79,10 +79,15 @@ class _ManagedProcess:
             kwargs["start_new_session"] = True
         return _run_command(self.command, block=False, **kwargs)
 
+    def start(self) -> None:
+        with self._lock:
+            if self._process is None:
+                self._process = self._start()
+
     def write(self, line: str) -> None:
         with self._lock:
             process = self._process
-            if process.stdin is None:
+            if process is None or process.stdin is None:
                 return
             try:
                 process.stdin.write(line)
@@ -92,12 +97,12 @@ class _ManagedProcess:
 
     def poll(self) -> Union[int, None]:
         with self._lock:
-            return self._process.poll()
+            return None if self._process is None else self._process.poll()
 
     def close_stdin(self) -> None:
         with self._lock:
             process = self._process
-            if process.stdin is None:
+            if process is None or process.stdin is None:
                 return
             try:
                 process.stdin.close()
@@ -106,6 +111,8 @@ class _ManagedProcess:
 
     def wait(self, timeout: float) -> bool:
         with self._lock:
+            if self._process is None:
+                return True
             try:
                 self._process.wait(timeout=timeout)
                 return True
@@ -124,6 +131,8 @@ class _ManagedProcess:
 
     def _terminate_locked(self) -> None:
         process = self._process
+        if process is None:
+            return
         if process.poll() is not None:
             return
         if platform.system() == "Windows":
@@ -177,6 +186,7 @@ def _raise_keyboard_interrupt(_signum, _frame) -> None:
 def _route_ibazel_events(
     processes: List[_ManagedProcess],
     restart_affected_commands: bool,
+    defer_non_notification_commands: bool,
     input_closed: threading.Event,
     shutdown: threading.Event,
 ) -> None:
@@ -194,7 +204,12 @@ def _route_ibazel_events(
         if event is None:
             continue
         if initial_build:
-            initial_build = False
+            if defer_non_notification_commands and event.get("success"):
+                for process in processes:
+                    if not process.command.ibazel_notify_changes:
+                        process.start()
+            if not defer_non_notification_commands or event.get("success"):
+                initial_build = False
             continue
         for process in processes:
             reason = _restart_reason(process.command, event, restart_affected_commands)
@@ -213,13 +228,29 @@ def _route_ibazel_events(
     shutdown.set()
 
 
-def _perform_ibazel_concurrently(commands: List[Command], restart_affected_commands: bool) -> bool:
-    processes = [_ManagedProcess(command) for command in commands]
+def _perform_ibazel_concurrently(
+    commands: List[Command],
+    restart_affected_commands: bool,
+    defer_non_notification_commands: bool,
+) -> bool:
+    processes = [
+        _ManagedProcess(
+            command,
+            start=not defer_non_notification_commands or command.ibazel_notify_changes,
+        )
+        for command in commands
+    ]
     input_closed = threading.Event()
     shutdown = threading.Event()
     event_thread = threading.Thread(
         target=_route_ibazel_events,
-        args=(processes, restart_affected_commands, input_closed, shutdown),
+        args=(
+            processes,
+            restart_affected_commands,
+            defer_non_notification_commands,
+            input_closed,
+            shutdown,
+        ),
         daemon=True,
     )
     event_thread.start()
@@ -365,6 +396,7 @@ def _main(instructions_path: str, extra_args: List[str]) -> None:
         success = _perform_ibazel_concurrently(
             commands,
             instructions.get("ibazel_restart_affected_commands", False),
+            instructions.get("ibazel_defer_non_notification_commands", False),
         )
     elif parallel:
         success = _perform_concurrently(

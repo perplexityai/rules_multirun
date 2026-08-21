@@ -99,6 +99,28 @@ commands. If iBazel cannot completely attribute a change, `multirun` safely
 restarts every non-notification command. No path routing is configured in the
 BUILD file.
 
+Set `ibazel_defer_non_notification_commands` when user-visible commands must not
+start before iBazel finishes its initial watch-discovery catch-up build:
+
+```bzl
+multirun(
+    name = "dev",
+    commands = [
+        ":frontend_devserver",
+        ":backend_dev",
+        ":desktop_app",
+    ],
+    ibazel_defer_non_notification_commands = True,
+    ibazel_notify_changes = True,
+    ibazel_restart_affected_commands = True,
+)
+```
+
+Notification-capable commands start immediately. Other commands start after the
+first successful structured build event, so an initial live reload can finish
+before a desktop app or browser becomes visible. Failed initial builds keep the
+deferred commands stopped.
+
 Commands that only advertise `ibazel_notify_changes` receive the legacy
 protocol. Commands that advertise `ibazel_notify_changes_v1` additionally
 receive structured `IBAZEL_EVENT` messages containing changed files. Selective

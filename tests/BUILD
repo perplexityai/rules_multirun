@@ -147,11 +147,33 @@ multirun(
     ibazel_restart_affected_commands = True,
 )
 
+multirun(
+    name = "ibazel_deferred_restart_multirun",
+    commands = [
+        ":ibazel_restart_rpc",
+        ":ibazel_restart_electron",
+    ],
+    ibazel_defer_non_notification_commands = True,
+    ibazel_notify_changes = True,
+    ibazel_restart_affected_commands = True,
+)
+
 py_test(
     name = "ibazel_restart_test",
     srcs = ["ibazel_restart_test.py"],
     args = ["$(rootpath :ibazel_restart_multirun)"],
     data = [":ibazel_restart_multirun"],
+)
+
+py_test(
+    name = "ibazel_deferred_restart_test",
+    srcs = ["ibazel_restart_test.py"],
+    args = [
+        "$(rootpath :ibazel_deferred_restart_multirun)",
+        "deferred",
+    ],
+    data = [":ibazel_deferred_restart_multirun"],
+    main = "ibazel_restart_test.py",
 )
 
 sh_binary(
@@ -375,6 +397,7 @@ sh_test(
         ":echo_and_fail_cmd",
         ":hello",
         ":hello2",
+        ":ibazel_deferred_restart_multirun",
         ":ibazel_multirun",
         ":ibazel_restart_multirun",
         ":multirun_binary_args",
