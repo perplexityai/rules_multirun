@@ -143,6 +143,8 @@ def _multirun_impl(ctx):
         fail("'forward_stdin' and 'ibazel_notify_changes' cannot both be enabled")
     elif ctx.attr.ibazel_restart_affected_commands and not ctx.attr.ibazel_notify_changes:
         fail("'ibazel_restart_affected_commands' requires 'ibazel_notify_changes'")
+    elif ctx.attr.ibazel_defer_non_notification_commands and not ctx.attr.ibazel_notify_changes:
+        fail("'ibazel_defer_non_notification_commands' requires 'ibazel_notify_changes'")
     elif ctx.attr.ibazel_notify_changes and not has_ibazel_notify_changes and not ctx.attr.ibazel_restart_affected_commands:
         fail("'ibazel_notify_changes' requires at least one capable command")
 
@@ -156,6 +158,7 @@ def _multirun_impl(ctx):
         forward_stdin = ctx.attr.forward_stdin,
         ibazel_notify_changes = ctx.attr.ibazel_notify_changes,
         ibazel_restart_affected_commands = ctx.attr.ibazel_restart_affected_commands,
+        ibazel_defer_non_notification_commands = ctx.attr.ibazel_defer_non_notification_commands,
         workspace_name = ctx.workspace_name,
     )
     ctx.actions.write(
@@ -232,6 +235,10 @@ def multirun_with_transition(cfg, allowlist = None):
             default = False,
             doc = "Restart non-notification commands affected by structured iBazel changes. Falls back to restarting all such commands when ownership is incomplete.",
         ),
+        "ibazel_defer_non_notification_commands": attr.bool(
+            default = False,
+            doc = "Start notification-capable commands immediately, then start other commands after the first successful structured iBazel build event.",
+        ),
         "_bash_runfiles": attr.label(
             default = Label("@bazel_tools//tools/bash/runfiles"),
         ),
@@ -299,7 +306,7 @@ multiple tools.
 
 _multirun = multirun_with_transition("target")
 
-def multirun(name, tags = [], ibazel_notify_changes = False, ibazel_restart_affected_commands = False, **kwargs):
+def multirun(name, tags = [], ibazel_notify_changes = False, ibazel_restart_affected_commands = False, ibazel_defer_non_notification_commands = False, **kwargs):
     """Runs multiple commands, optionally preserving iBazel notifications.
 
     Commands tagged `ibazel_notify_changes`, such as `js_run_devserver`, receive
@@ -314,10 +321,15 @@ def multirun(name, tags = [], ibazel_notify_changes = False, ibazel_restart_affe
             structured protocols to iBazel.
         ibazel_restart_affected_commands: Whether to restart non-notification
             commands affected by each successful structured build event.
+        ibazel_defer_non_notification_commands: Whether to wait for the first
+            successful structured build event before starting non-notification
+            commands. Notification-capable commands still start immediately.
         **kwargs: Additional `multirun` attributes.
     """
     if ibazel_restart_affected_commands and not ibazel_notify_changes:
         fail("'ibazel_restart_affected_commands' requires 'ibazel_notify_changes'")
+    if ibazel_defer_non_notification_commands and not ibazel_notify_changes:
+        fail("'ibazel_defer_non_notification_commands' requires 'ibazel_notify_changes'")
 
     if ibazel_notify_changes:
         if kwargs.get("jobs", 0) != 0:
@@ -336,6 +348,7 @@ def multirun(name, tags = [], ibazel_notify_changes = False, ibazel_restart_affe
         name = name,
         ibazel_notify_changes = ibazel_notify_changes,
         ibazel_restart_affected_commands = ibazel_restart_affected_commands,
+        ibazel_defer_non_notification_commands = ibazel_defer_non_notification_commands,
         tags = tags,
         **kwargs
     )
