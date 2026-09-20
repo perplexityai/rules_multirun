@@ -187,6 +187,8 @@ exec "$multirun_script" "$instructions" "$@"
 setlocal
 if not defined RUNFILES_DIR set "RUNFILES_DIR=%~f0.runfiles"
 if not defined RUNFILES_MANIFEST_FILE set "RUNFILES_MANIFEST_FILE=%~f0.runfiles_manifest"
+set "RUNFILES_DIR=%RUNFILES_DIR:\\=/%"
+set "RUNFILES_MANIFEST_FILE=%RUNFILES_MANIFEST_FILE:\\=/%"
 if not defined BAZEL_SH set "BAZEL_SH=bash.exe"
 "%BAZEL_SH%" "%~dp0{bash}" %*
 exit /b %ERRORLEVEL%
