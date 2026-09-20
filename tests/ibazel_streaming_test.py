@@ -16,8 +16,8 @@ def _read_lines(stream: TextIO, lines: queue.Queue[str]) -> None:
 
 
 def _main() -> None:
-    command = [sys.argv[1]]
-    if os.name == "nt":
+    command = [os.path.abspath(sys.argv[1])]
+    if os.name == "nt" and not command[0].endswith(".bat"):
         bash = os.environ.get("BAZEL_SH") or shutil.which("bash.exe")
         assert bash is not None
         command.insert(0, bash)

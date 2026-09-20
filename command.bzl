@@ -80,7 +80,7 @@ def _command_impl(ctx):
     cd_command = ""
     if ctx.attr.run_from_workspace_root:
         cd_command = 'cd "$BUILD_WORKSPACE_DIRECTORY"'
-    command_exec = " ".join(["exec $(rlocation %s)" % shell.quote(rlocation_path(ctx, executable))] + str_args + ['"$@"\n'])
+    command_exec = " ".join(['exec "$(rlocation %s)"' % shell.quote(rlocation_path(ctx, executable))] + str_args + ['"$@"\n'])
 
     out_file = ctx.actions.declare_file(ctx.label.name + ".bash")
     ctx.actions.write(

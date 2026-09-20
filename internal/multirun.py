@@ -1,3 +1,4 @@
+import ctypes
 import json
 import os
 import platform
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+from ctypes import wintypes
 from typing import Dict, List, NamedTuple, Tuple, Union
 
 from python.runfiles import runfiles
@@ -27,17 +29,70 @@ class Command(NamedTuple):
     ibazel_notify_changes_v1: bool
 
 
+class _JobBasicLimits(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_longlong),
+        ("PerJobUserTimeLimit", ctypes.c_longlong),
+        ("LimitFlags", wintypes.DWORD),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", wintypes.DWORD),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", wintypes.DWORD),
+        ("SchedulingClass", wintypes.DWORD),
+    ]
+
+
+class _JobExtendedLimits(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JobBasicLimits),
+        ("IoInfo", ctypes.c_ulonglong * 6),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+def _run_windows_child(args: List[str]) -> int:
+    # Join before spawning: MSYS exec can reparent native children, so PID-tree
+    # termination and assigning a job after Popen both miss descendants.
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel.SetInformationJobObject.restype = wintypes.BOOL
+    kernel.GetCurrentProcess.argtypes = []
+    kernel.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel.AssignProcessToJobObject.restype = wintypes.BOOL
+    job = kernel.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    limits = _JobExtendedLimits()
+    limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not kernel.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    if not kernel.AssignProcessToJobObject(job, kernel.GetCurrentProcess()):
+        raise ctypes.WinError(ctypes.get_last_error())
+    # The non-inheritable handle lives until this supervisor exits, including
+    # forced termination. Closing it then kills every descendant in the job.
+    return subprocess.call(args)
+
+
 def _run_command(command: Command, block: bool, **kwargs) -> Union[int, subprocess.Popen]:
     if platform.system() == "Windows":
         bash = os.environ.get("BAZEL_SH") or shutil.which("bash.exe")
         if not bash:
             raise SystemExit("error: bash not found. On Windows, install MSYS2, Git Bash or Cygwin and set BAZEL_SH environment variable.")
 
-        args = [bash, "-c", f'{command.path} "$@"', "--"] + command.args
+        args = [sys.executable, __file__, "--windows-child", bash, "-c", '"$0" "$@"; exit $?', command.path] + command.args
     else:
         args = [command.path] + command.args
     env = dict(os.environ)
     env.update(command.env)
+    if platform.system() == "Windows":
+        env["PYTHONPATH"] = os.pathsep.join(sys.path)
     if block:
         return subprocess.check_call(args, env=env)
     else:
@@ -413,4 +468,6 @@ def _main(instructions_path: str, extra_args: List[str]) -> None:
 
 
 if __name__ == "__main__":
+    if sys.argv[1] == "--windows-child":
+        sys.exit(_run_windows_child(sys.argv[2:]))
     _main(sys.argv[1], sys.argv[2:])
