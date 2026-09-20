@@ -64,9 +64,9 @@ def _wait_for_processes_to_exit(path: Path) -> None:
 def _main() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         launch_log = Path(temp_dir) / "launches.txt"
-        command = [sys.argv[1], str(launch_log)]
+        command = [os.path.abspath(sys.argv[1]), str(launch_log)]
         deferred = len(sys.argv) > 2 and sys.argv[2] == "deferred"
-        if os.name == "nt":
+        if os.name == "nt" and not command[0].endswith(".bat"):
             bash = os.environ.get("BAZEL_SH") or shutil.which("bash.exe")
             assert bash is not None
             command.insert(0, bash)

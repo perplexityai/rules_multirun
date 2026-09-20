@@ -51,6 +51,13 @@ Run the `multirun` target with bazel:
 $ bazel run //:lint
 ```
 
+## Windows
+
+Install Git for Windows or MSYS2 and put `bash.exe` on `PATH`, or set `BAZEL_SH`
+to its absolute path. Windows targets expose a `.bat` entrypoint for `bazel run`.
+Each command runs in a Windows Job Object so stopping or restarting it also
+terminates descendants, including native processes launched through Bash `exec`.
+
 ## Usage with iBazel
 
 Set `ibazel_notify_changes` on `multirun` to compose long-lived commands while

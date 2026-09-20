@@ -37,10 +37,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - run: bazelisk test //tests/...
-      - run: bazelisk test //tests/...
+      - run: bazelisk test //tests/... //internal:windows_process_test
+      - run: bazelisk test //tests/... //internal:windows_process_test
         env:
           USE_BAZEL_VERSION: rolling
-      - run: bazelisk test //tests/...
+      - run: bazelisk test //tests/... //internal:windows_process_test
         env:
           USE_BAZEL_VERSION: last_green

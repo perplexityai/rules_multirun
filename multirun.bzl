@@ -177,9 +177,27 @@ exec "$multirun_script" "$instructions" "$@"
         content = RUNFILES_PREFIX + script,
         is_executable = True,
     )
+    launcher_files = [out_file]
+    if ctx.target_platform_has_constraint(ctx.attr._windows_constraint[platform_common.ConstraintValueInfo]):
+        bash_file = out_file
+        out_file = ctx.actions.declare_file(ctx.label.name + ".bat")
+        ctx.actions.write(
+            output = out_file,
+            content = """@echo off
+setlocal
+if not defined RUNFILES_DIR set "RUNFILES_DIR=%~f0.runfiles"
+if not defined RUNFILES_MANIFEST_FILE set "RUNFILES_MANIFEST_FILE=%~f0.runfiles_manifest"
+if not defined BAZEL_SH set "BAZEL_SH=bash.exe"
+"%BAZEL_SH%" "%~dp0{bash}" %*
+exit /b %ERRORLEVEL%
+""".format(bash = bash_file.basename),
+            is_executable = True,
+        )
+        launcher_files.append(out_file)
+        runfiles = runfiles.merge(ctx.runfiles(files = [bash_file]))
     return [
         DefaultInfo(
-            files = depset([out_file]),
+            files = depset(launcher_files),
             runfiles = runfiles.merge(ctx.runfiles(files = runfiles_files + ctx.files.data)),
             executable = out_file,
         ),
@@ -238,6 +256,9 @@ def multirun_with_transition(cfg, allowlist = None):
         "ibazel_defer_non_notification_commands": attr.bool(
             default = False,
             doc = "Start notification-capable commands immediately, then start other commands after the first successful structured iBazel build event.",
+        ),
+        "_windows_constraint": attr.label(
+            default = Label("@platforms//os:windows"),
         ),
         "_bash_runfiles": attr.label(
             default = Label("@bazel_tools//tools/bash/runfiles"),
