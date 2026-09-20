@@ -62,6 +62,9 @@ def _wait_for_processes_to_exit(path: Path) -> None:
 
 
 def _main() -> None:
+    if os.name == "nt":
+        # Python's extracted zip omits runfiles symlinks needed by shell children.
+        os.environ["RUNFILES_MANIFEST_FILE"] = os.path.join(os.environ["TEST_SRCDIR"], "MANIFEST")
     with tempfile.TemporaryDirectory() as temp_dir:
         launch_log = Path(temp_dir) / "launches.txt"
         command = [os.path.abspath(sys.argv[1]), str(launch_log)]
