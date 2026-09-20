@@ -16,6 +16,9 @@ def _read_lines(stream: TextIO, lines: queue.Queue[str]) -> None:
 
 
 def _main() -> None:
+    if os.name == "nt":
+        # Python's extracted zip omits runfiles symlinks needed by shell children.
+        os.environ["RUNFILES_MANIFEST_FILE"] = os.path.join(os.environ["TEST_SRCDIR"], "MANIFEST")
     command = [os.path.abspath(sys.argv[1])]
     if os.name == "nt" and not command[0].endswith(".bat"):
         bash = os.environ.get("BAZEL_SH") or shutil.which("bash.exe")

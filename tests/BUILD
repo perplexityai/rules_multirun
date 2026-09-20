@@ -398,7 +398,6 @@ sh_test(
         ":hello",
         ":hello2",
         ":ibazel_deferred_restart_multirun",
-        ":ibazel_multirun",
         ":ibazel_restart_multirun",
         ":multirun_binary_args",
         ":multirun_binary_args_location",
